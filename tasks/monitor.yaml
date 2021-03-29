@@ -5,10 +5,10 @@ image_resource:
   type: docker-image
   source: {repository: kernelci/build-base}
 
-# inputs:
-#   - name: tasks
-    
+inputs:
+  - name: tasks
+
 run:
-  path: ls
-  args: [-alR]
-  # path: ./tasks/test.sh
+  # path: ls
+  # args: [-alR]
+  path: ./tasks/test.sh
