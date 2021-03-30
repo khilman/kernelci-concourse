@@ -11,7 +11,8 @@ import kernelci.build
 import kernelci.config.build
 
 configs = kernelci.config.build.from_yaml("config/core/build-configs.yaml")
-if "$(params.CONFIG_LIST)":
+config_list = os.environ("CONFIG_LIST")
+if config_list:
     config_list = "$(params.CONFIG_LIST)".split()
 else:
     config_list = list(configs['build_configs'].keys())
