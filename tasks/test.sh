@@ -1,8 +1,7 @@
 #!/bin/sh
 
-pwd
-ls -alR
-
+ls -l
 cd kernelci-core
 ./kci_build list_configs
 
+env
