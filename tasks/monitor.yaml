@@ -6,9 +6,10 @@ image_resource:
   source: {repository: kernelci/build-base}
 
 inputs:
-  - name: tasks
+  - name: kernelci-core
+  - name: kernelci-concourse
 
 run:
   # path: ls
   # args: [-alR]
-  path: ./tasks/test.sh
+  path: ./kernelci-concourse/tasks/test.sh
