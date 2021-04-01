@@ -6,14 +6,6 @@ image_resource:
   source: {repository: kernelci/build-base}
 
 inputs:
-  - name: kernelci-core
-  - name: kernelci-concourse
-
-params:
-  CONFIG_LIST: "amlogic_integ khilman mainline next"
-  KCI_STORAGE_URL: https://storage.staging.kernelci.org
-  
-inputs:
   - name: monitor-out
     
 run:
