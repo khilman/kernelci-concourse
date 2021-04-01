@@ -10,10 +10,14 @@ inputs:
   - name: kernelci-concourse
 
 params:
-  CONFIG_LIST: "next"
+  CONFIG_LIST: "amlogic_integ khilman mainline next"
   KCI_STORAGE_URL: https://storage.staging.kernelci.org
   
+outputs:
+  - name: config-list.txt
+    
 run:
   # path: ls
   # args: [-alR]
-  path: ./kernelci-concourse/tasks/test.py
+  #path: ./kernelci-concourse/tasks/test.py
+  path: ./kernelci-concourse/tasks/monitor.sh
