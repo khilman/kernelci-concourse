@@ -6,10 +6,9 @@ image_resource:
   source: {repository: kernelci/build-base}
 
 inputs:
+  - name: kernelci-core
+  - name: kernelci-concourse
   - name: monitor-out
     
 run:
-  path: ls
-  args: [-alR]
-  #path: ./kernelci-concourse/tasks/test.py
-  #path: ./kernelci-concourse/tasks/monitor.sh
+   path: ./kernelci-concourse/tasks/build-trigger.sh
