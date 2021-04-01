@@ -1,0 +1,23 @@
+---
+platform: linux
+
+image_resource:
+  type: docker-image
+  source: {repository: kernelci/build-base}
+
+inputs:
+  - name: kernelci-core
+  - name: kernelci-concourse
+
+params:
+  CONFIG_LIST: "amlogic_integ khilman mainline next"
+  KCI_STORAGE_URL: https://storage.staging.kernelci.org
+  
+inputs:
+  - name: monitor-out
+    
+run:
+  path: ls
+  args: [-alR]
+  #path: ./kernelci-concourse/tasks/test.py
+  #path: ./kernelci-concourse/tasks/monitor.sh
