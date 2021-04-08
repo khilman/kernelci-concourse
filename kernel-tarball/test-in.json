@@ -1,0 +1,14 @@
+{
+  "source": {
+    "build_config": "khilman",
+    "kci_storage_url": "https://storage.staging.kernelci.org"
+  },
+  "params": {
+    "KDIR": "/tmp/concourse/in",
+    "BUILD_CONFIG": "khilman",
+    "KCI_API_TOKEN": "d23be53f-3cea-43ce-a973-60795a4cbac1",
+    "KCI_API_URL": "https://api.staging.kernelci.org",
+    "KCI_STORAGE_URL": "https://storage.staging.kernelci.org",
+    "SRC_TARBALL_URL": "https://storage.staging.kernelci.org/khilman/to-build/v5.12-rc6-11-gb8d408329947/linux-src_khilman.tar.gz"
+  }
+}
