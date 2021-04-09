@@ -2,25 +2,10 @@ import os
 import sys
 import errno
 import json
+import pprint
 import kernelci
 import kernelci.build
 import kernelci.config.build
-import random
-
-
-def check_new_commit(configs, build_config, storage):
-    conf = configs['build_configs'][build_config]
-    update = kernelci.build.check_new_commit(conf, storage)
-    print(update)
-    if update is False or update is True:
-        return update
-
-
-def get_last_commit(configs, build_config, storage):
-    conf = configs['build_configs'][build_config]
-    commit = kernelci.build.get_last_commit(conf, storage)
-    print("get_last_commit = {}".format(commit), file=sys.stderr)
-    return commit
 
 
 class TarballResource:
@@ -28,12 +13,8 @@ class TarballResource:
     def __init__(self, data: dict):
         self.data = json.loads(data)
         self.kci_configs = None
-        self.last_commit = None
-        self.url = None
-        self.kdir = None
-        
         if self.data:
-            print("data: {}".format(self.data), file=sys.stderr)
+            print(json.dumps(self.data, indent=2), file=sys.stderr)
         source = self.data.get("source")
         if source:
             self.build_config = source["build_config"]
@@ -62,57 +43,71 @@ class TarballResource:
         print(tarball_url)
         return True
 
-    def pull(self):
+    def pull(self, kdir, url):
         retries = 1
         tarball = 'linux-src.tar.gz'
-        print("pull from URL: {}".format(self.url), file=sys.stderr)
+        print("pull from URL: {}".format(url), file=sys.stderr)
         return kernelci.build.pull_tarball(
-            self.kdir, self.url, tarball, retries, False)
+            kdir, url, tarball, retries, False)
 
+    def get_last_commit(self):
+        conf = self.kci_configs['build_configs'][self.build_config]
+        commit = kernelci.build.get_last_commit(conf, self.storage)
+        print("last_commit = {}".format(commit), file=sys.stderr)
+        return commit
+    
     def cmd_check(self, version=None):
-        #version = self.data.get("version")
-        print("check: version={}".format(version), file=sys.stderr)
-
-        commit = get_last_commit(self.kci_configs,
-                                 self.build_config,
-                                 self.storage)
-        results = {"ref": commit}
-
+        print("CHECK: version={}".format(version), file=sys.stderr)
+        commit = self.get_last_commit()
+        results = {
+            "ref": commit,
+            "describe": "",
+            "url": "",
+        }
         print(json.dumps([results]))
 
     def cmd_in(self, dest='.'):
         result = dict()
-        print("dest={}".format(dest), file=sys.stderr)
-        version = self.data.get("version")
-        params = self.data.get("params")
-
-        self.kdir = os.path.join(dest, "linux")
-        print("KDIR = {}".format(self.kdir), file=sys.stderr)
-        
-        self.url = params.get("SRC_TARBALL_URL", self.url)
-        print("src url = {}".format(self.url), file=sys.stderr)
-        ret = self.pull()
+        print("IN: dest={}".format(dest), file=sys.stderr)
+        version = self.data.get('version')
+            
+        kdir = os.path.join(dest, "linux")
+        url = version.get('url')
+        ret = self.pull(kdir, url)
         if not ret:
             print("ERROR: pull tarball failed.", file=sys.stderr)
         
-        result["version"] = {"ref": self.last_commit}
+        result["version"] = version
         print(json.dumps(result))
 
     def cmd_out(self, dest='.'):
         result = dict()
-        print("dest={}".format(dest), file=sys.stderr)
+        print("OUT: dest={}".format(dest), file=sys.stderr)
 
         params = self.data.get("params")
-        # if not params:
-        #     print(json.dumps(results))
-
-        self.kdir = params["KDIR"]
-        self.build_config = params["BUILD_CONFIG"]
-        self.storage = params["KCI_STORAGE_URL"]
-        self.url = params["SRC_TARBALL_URL"]
-        commit = get_last_commit(self.kci_configs,
-                                 self.build_config,
-                                 self.storage)
-        self.last_commit = commit
-        result["version"] = {"ref": commit}
+        url = params.get("SRC_TARBALL_URL")
+        commit = params.get("COMMIT")
+        last_commit = self.get_last_commit()
+        if commit != last_commit:
+            print("ERROR: commit:{} != last_comit:{}".format(
+                commit, last_commit), file=sys.stderr)
+            return
+        
+        result["version"] = {
+            "ref": commit,
+            "describe": params.get("DESCRIBE"),
+            "url": url,
+        }
+        result["metadata"] = [
+            {"name": "build_config",
+             "value": self.build_config},
+            {"name": url,
+             "value": params.get("SRC_TARBALL_URL")},
+            {"name": "commit",
+             "value": params.get("COMMIT")},
+            {"name": "describe",
+             "value": params.get("DESCRIBE")},
+            {"name": "describe_v",
+             "value": params.get("DESCRIBE_V")},
+        ]
         print(json.dumps(result))

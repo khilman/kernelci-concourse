@@ -18,7 +18,6 @@ def output():
 
 if __name__ == "__main__":
     cmd = sys.argv[1]
-    print(cmd)
     if cmd == "check":
         check()
     elif cmd == "in":
