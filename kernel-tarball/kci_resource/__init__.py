@@ -58,19 +58,31 @@ class TarballResource:
     
     def cmd_check(self, version=None):
         print("CHECK: version={}".format(version), file=sys.stderr)
-        commit = self.get_last_commit()
+#        commit = self.get_last_commit()
+        
+        config = self.kci_configs['build_configs'][self.build_config]
+        commit = kernelci.build.get_last_commit(config, self.storage)
+        print("last_commit = {}".format(commit), file=sys.stderr)
+              
+        last_commit_url = "{storage}/{tree}/{file_name}".format(
+            storage=self.storage, tree=config.tree.name,
+            file_name=kernelci.build._get_last_commit_file_name(config))
+        print("last_commit_url = {}".format(last_commit_url), file=sys.stderr)
+
         results = {
             "ref": commit,
-            "describe": "",
-            "url": "",
+            # "describe": "",
+            # "url": "",
         }
         print(json.dumps([results]))
 
     def cmd_in(self, dest='.'):
         result = dict()
         print("IN: dest={}".format(dest), file=sys.stderr)
+        params = self.data.get("params")
+        print("params = {}".format(params), file=sys.stderr)
         version = self.data.get('version')
-            
+        print("version = {}".format(version), file=sys.stderr)
         kdir = os.path.join(dest, "linux")
         url = version.get('url')
         ret = self.pull(kdir, url)
@@ -97,11 +109,12 @@ class TarballResource:
             "ref": commit,
             "describe": params.get("DESCRIBE"),
             "url": url,
+            "khilman": "hello-0",
         }
         result["metadata"] = [
             {"name": "build_config",
              "value": self.build_config},
-            {"name": url,
+            {"name": "url",
              "value": params.get("SRC_TARBALL_URL")},
             {"name": "commit",
              "value": params.get("COMMIT")},
@@ -111,3 +124,4 @@ class TarballResource:
              "value": params.get("DESCRIBE_V")},
         ]
         print(json.dumps(result))
+        
