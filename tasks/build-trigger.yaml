@@ -8,7 +8,11 @@ image_resource:
 inputs:
   - name: kernelci-core
   - name: kernelci-concourse
-  - name: monitor-out
+  - name: kernel-repo
     
+params:
+  BUILD_CONFIG: khilman
+  KCI_STORAGE_URL: https://storage.staging.kernelci.org
+
 run:
    path: ./kernelci-concourse/tasks/build-trigger.sh

@@ -1,3 +1,10 @@
+resource_types:
+- name: kernelci-tarball
+  type: docker-image
+  source:
+    repository: khilman/kernelci-tarball
+    tag: latest
+    
 resources:
   - name: kernelci-core
     type: git
@@ -5,11 +12,11 @@ resources:
       uri: ((kci-core-url))
       branch: ((kci-core-branch))
 
-  - name: kernelci-concourse
-    type: git
-    source:
-      uri: ((kci-concourse-url))
-      branch: ((kci-concourse-branch))
+  # - name: kernelci-concourse
+  #   type: git
+  #   source:
+  #     uri: ((kci-concourse-url))
+  #     branch: ((kci-concourse-branch))
 
   - name: kernel-repo
     type: git
@@ -17,12 +24,18 @@ resources:
       uri: ((kernel-repo-url))
       branch: ((kernel-repo-branch))
 
+  - name: kernel-tarball
+    type: kernelci-tarball
+    source:
+      build_config: ((build-config))
+      kci_storage_url: ((kci-storage-url))
+      
 jobs:
   - name: trigger
     public: true
     plan:
       - get: kernelci-core
-      - get: kernelci-concourse  
+      # - get: kernelci-concourse  
 
       # - task: check-configs
       #   file: kernelci-concourse/tasks/build-trigger.yaml
@@ -32,11 +45,8 @@ jobs:
 
       - get: kernel-repo
         trigger: true
-        # params: {depth: 1}
-        # params: {repository: some-other-repo}
-        # kernel-git-url: https://git.kernel.org/pub/scm/linux/kernel/git/khilman/linux.git
-        # kernel-git-branch: to-build
-          
+        #check_every: 60m
+        
       - task: check-new-commit
         config:
           platform: linux
@@ -64,7 +74,7 @@ jobs:
                 pwd
                 COMMIT=$(./kci_build check_new_commit --build-config $BUILD_CONFIG --storage $KCI_STORAGE_URL)
 
-      - task: update-commit
+      - task: update-and-push
         config:
           platform: linux
 
@@ -78,11 +88,13 @@ jobs:
               
           outputs:
             - name: trigger-outputs
+            - name: kernel-repo
               
           params:
             BUILD_CONFIG: ((build-config))
             KCI_API_URL: ((kci-api-url))
             KCI_API_TOKEN: ((kci-api-token))
+            KCI_STORAGE_URL: ((kci-storage-url))
             
           run:
             dir: kernelci-core
@@ -93,18 +105,45 @@ jobs:
                 env
                 KDIR=../kernel-repo
                 OUTPUT=../trigger-outputs
-                COMMIT=$(./kci_build describe --build-config $BUILD_CONFIG --kdir $KDIR | head -1)
-
+                ./kci_build describe --build-config $BUILD_CONFIG --kdir $KDIR | tee $OUTPUT/describe-all.txt
+                sed -n '1p' $OUTPUT/describe-all.txt | tee $OUTPUT/commit.txt
+                sed -n '2p' $OUTPUT/describe-all.txt | tee $OUTPUT/describe.txt
+                sed -n '3p' $OUTPUT/describe-all.txt | tee $OUTPUT/describe_v.txt
+                COMMIT=$(cat $OUTPUT/commit.txt)
+                
                 if [[ ! -z $COMMIT ]]; then
                   ./kci_build update_last_commit --build-config $BUILD_CONFIG --commit $COMMIT --api $KCI_API_URL --db-token $KCI_API_TOKEN
                 fi
 
                 ./kci_build generate_fragments --build-config $BUILD_CONFIG --kdir $KDIR
+                ./kci_build push_tarball --build-config $BUILD_CONFIG --kdir $KDIR --storage $KCI_STORAGE_URL --api $KCI_API_URL --db-token $KCI_API_TOKEN | tee $OUTPUT/src-tarball-url.txt
                 ./kci_build list_kernel_configs --build-config $BUILD_CONFIG --kdir $KDIR | tee $OUTPUT/list_kernel_configs.txt
 
       - load_var: kernel-configs
         file: trigger-outputs/list_kernel_configs.txt
-        
+      - load_var: git-commit
+        file: trigger-outputs/commit.txt
+      - load_var: git-describe
+        file: trigger-outputs/describe.txt
+      - load_var: git-describe-v
+        file: trigger-outputs/describe_v.txt
+      - load_var: src-tarball-url
+        file: trigger-outputs/src-tarball-url.txt
+
+      # This does nothing under the hood because it was already pushed in the previous task
+      # however this makes subsequent jobs be able to trigger on this resource
+      - put: kernel-tarball  
+        params:
+          # KDIR: kernel-repo
+          # BUILD_CONFIG: ((build-config))
+          # KCI_API_URL: ((kci-api-url))
+          # KCI_API_TOKEN: ((kci-api-token))
+          # KCI_STORAGE_URL: ((kci-storage-url))
+          SRC_TARBALL_URL: ((.:src-tarball-url))
+          COMMIT: ((.:git-commit))
+          DESCRIBE: ((.:git-describe))
+          DESCRIBE_V: ((.:git-describe-v))
+          
       - task: create-builds
         config:
           platform: linux
@@ -114,11 +153,12 @@ jobs:
             source: {repository: concourse/concourse}
 
           inputs:
-            - name: kernelci-concourse
+            # - name: kernelci-concourse
             - name: trigger-outputs  
 
           params:
             KERNEL_CONFIGS: ((.:kernel-configs))
+            SRC_TARBALL_URL: ((.:src-tarball-url))
 
           run:
             path: bash
@@ -127,40 +167,57 @@ jobs:
               - |
                 env
                 ls -l
-
+                #cat trigger-outputs/list_kernel_configs.txt
+                #cat trigger-outputs/src-tarball-url.txt
                 
   - name: build
     public: true
     plan:
       - get: kernelci-core
-      - get: kernel-repo
+      - get: kernel-tarball
         passed: [trigger]
+        trigger: true
         
       - task: build
         config:
           platform: linux
 
           params:
+            BUILD_CONFIG: ((build-config))
             BUILD_ENV: ((build-env))
             ARCH: ((arch))
-            DEFCONFIG: defconfig
-            
+            DEFCONFIG: ((defconfig))
+
+            #
+            # FIXME: get these from the kernel-tarball resource
+            #
+            COMMIT: dcf8e5633e2e69ad60b730ab5905608b756a032f
+            DESCRIBE: v6.0-rc3-7-gdcf8e5633e2e
+            DESCRIBE_V: v6.0-rc3-7-gdcf8e5633e2e
+
           image_resource:
             type: docker-image
-            source: {repository: kernelci/build-((build-env))_((arch))}
+            source: {repository: kernelci/((build-env))_((arch))}
 
           inputs:
             - name: kernelci-core
-            - name: kernel-repo
+            - name: kernel-tarball
               
           run:
-            dir: kernelci-core
             path: bash
             args:
               - -xc
               - |
-                KDIR=../kernel-repo
+                KDIR=$PWD/kernel-tarball/linux
+                OUTPUT=$KDIR/build-$ARCH
                 CCACHE_DISABLE=true
+                COMMON_ARGS="--kdir $KDIR --output $OUTPUT"
                 env
-                ./kci_build build_kernel --arch $ARCH --build-env $BUILD_ENV --defconfig $DEFCONFIG --kdir $KDIR
 
+                cd kernelci-core
+
+                ./kci_build init_bmeta $COMMON_ARGS --build-config $BUILD_CONFIG --build-env $BUILD_ENV --arch $ARCH --commit $COMMIT --describe $DESCRIBE --describe-verbose $DESCRIBE_V
+                ./kci_build make_config $COMMON_ARGS --defconfig $DEFCONFIG
+                ./kci_build make_kernel $COMMON_ARGS
+                ./kci_build make_modules $COMMON_ARGS
+                ./kci_build make_dtbs $COMMON_ARGS
