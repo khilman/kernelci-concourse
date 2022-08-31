@@ -116,6 +116,7 @@ jobs:
                 fi
 
                 ./kci_build generate_fragments --build-config $BUILD_CONFIG --kdir $KDIR
+                ./kci_build init_bmeta --build-config $BUILD_CONFIG --kdir $KDIR
                 ./kci_build push_tarball --build-config $BUILD_CONFIG --kdir $KDIR --storage $KCI_STORAGE_URL --api $KCI_API_URL --db-token $KCI_API_TOKEN | tee $OUTPUT/src-tarball-url.txt
                 ./kci_build list_kernel_configs --build-config $BUILD_CONFIG --kdir $KDIR | tee $OUTPUT/list_kernel_configs.txt
 
@@ -178,6 +179,11 @@ jobs:
         passed: [trigger]
         trigger: true
         
+      - load_var: bmeta
+        file: kernel-tarball/linux/build/bmeta.json
+        format: json
+        reveal: true
+            
       - task: build
         config:
           platform: linux
@@ -188,13 +194,13 @@ jobs:
             ARCH: ((arch))
             DEFCONFIG: ((defconfig))
 
-            #
-            # FIXME: get these from the kernel-tarball resource
-            #
-            COMMIT: dcf8e5633e2e69ad60b730ab5905608b756a032f
-            DESCRIBE: v6.0-rc3-7-gdcf8e5633e2e
-            DESCRIBE_V: v6.0-rc3-7-gdcf8e5633e2e
-
+            BRANCH: ((.:bmeta.revision.branch))
+            COMMIT: ((.:bmeta.revision.commit))
+            DESCRIBE: ((.:bmeta.revision.describe))
+            DESCRIBE_V: ((.:bmeta.revision.describe_verbose))
+            TREE: ((.:bmeta.revision.tree))
+            URL: ((.:bmeta.revision.url))
+            
           image_resource:
             type: docker-image
             source: {repository: kernelci/((build-env))_((arch))}
@@ -212,13 +218,12 @@ jobs:
                 OUTPUT=$KDIR/build-$ARCH
                 CCACHE_DISABLE=true
                 COMMON_ARGS="--kdir $KDIR --output $OUTPUT"
-                env
 
-                ls -al $PWD/kernel-tarball
+                cat $KDIR/build/bmeta.json
+                
                 cd kernelci-core
-
                 ./kci_build init_bmeta $COMMON_ARGS --build-config $BUILD_CONFIG --build-env $BUILD_ENV --arch $ARCH --commit $COMMIT --describe $DESCRIBE --describe-verbose $DESCRIBE_V
-                #./kci_build make_config $COMMON_ARGS --defconfig $DEFCONFIG
-                #./kci_build make_kernel $COMMON_ARGS
-                #./kci_build make_modules $COMMON_ARGS
-                #./kci_build make_dtbs $COMMON_ARGS
+                ./kci_build make_config $COMMON_ARGS --defconfig $DEFCONFIG
+                ./kci_build make_kernel $COMMON_ARGS
+                ./kci_build make_modules $COMMON_ARGS
+                ./kci_build make_dtbs $COMMON_ARGS
