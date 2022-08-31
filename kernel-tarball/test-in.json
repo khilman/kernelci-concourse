@@ -1,2 +1,2 @@
-{"source": {"build_config": "khilman", "kci_storage_url": "https://storage.staging.kernelci.org"}, "version": {"ref": "dcf8e5633e2e69ad60b730ab5905608b756a032f"}}
+{"source": {"build_config": "khilman", "kci_storage_url": "https://storage.staging.kernelci.org"}, "version": {"ref": "dcf8e5633e2e69ad60b730ab5905608b756a032f", "url": "https://storage.staging.kernelci.org/khilman/to-build/v6.0-rc3-7-gdcf8e5633e2e/linux-src_khilman.tar.gz"}}
 
