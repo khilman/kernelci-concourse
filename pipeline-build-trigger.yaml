@@ -3,7 +3,7 @@ resource_types:
   type: docker-image
   source:
     repository: khilman/kernelci-tarball
-    tag: latest
+    tag: wip
     
 resources:
   - name: kernelci-core
@@ -214,10 +214,11 @@ jobs:
                 COMMON_ARGS="--kdir $KDIR --output $OUTPUT"
                 env
 
+                ls -al $PWD/kernel-tarball
                 cd kernelci-core
 
                 ./kci_build init_bmeta $COMMON_ARGS --build-config $BUILD_CONFIG --build-env $BUILD_ENV --arch $ARCH --commit $COMMIT --describe $DESCRIBE --describe-verbose $DESCRIBE_V
-                ./kci_build make_config $COMMON_ARGS --defconfig $DEFCONFIG
-                ./kci_build make_kernel $COMMON_ARGS
-                ./kci_build make_modules $COMMON_ARGS
-                ./kci_build make_dtbs $COMMON_ARGS
+                #./kci_build make_config $COMMON_ARGS --defconfig $DEFCONFIG
+                #./kci_build make_kernel $COMMON_ARGS
+                #./kci_build make_modules $COMMON_ARGS
+                #./kci_build make_dtbs $COMMON_ARGS
