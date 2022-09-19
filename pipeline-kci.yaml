@@ -1,0 +1,60 @@
+resources:
+  - name: kernelci-core
+    type: git
+    source:
+      uri: ((kci-core-url))
+      branch: ((kci-core-branch))
+
+  - name: kernel-repo
+    type: git
+    source:
+      uri: ((kernel-repo-url))
+      branch: ((kernel-repo-branch))
+
+jobs:
+  - name: build-kernel
+    public: true
+    plan:
+      - get: kernelci-core
+      - get: kernel-repo
+        # params: {depth: 1}
+        trigger: true
+        
+      - task: build
+        config:
+          platform: linux
+
+          params:
+            BUILD_CONFIG: ((build-config))
+            BUILD_ENV: ((build-env))
+            ARCH: ((arch))
+            DEFCONFIG: ((defconfig))
+
+          image_resource:
+            type: docker-image
+            # FIXME: handle differences between gcc & clang docker images
+            source: {repository: kernelci/((build-env))_((arch))}
+            #source: {repository: kernelci/((build-env))}
+
+          inputs:
+            - name: kernelci-core
+            - name: kernel-repo
+              
+          run:
+            path: bash
+            args:
+              - -xc
+              - |
+                KDIR=$PWD/kernel-repo
+                OUTPUT=$KDIR/build-$ARCH
+                CCACHE_DISABLE=true
+                COMMON_ARGS="--kdir $KDIR --output $OUTPUT"
+
+                cat $KDIR/build/bmeta.json
+                
+                cd kernelci-core
+                ./kci_build init_bmeta $COMMON_ARGS --build-config $BUILD_CONFIG --build-env $BUILD_ENV --arch $ARCH 
+                ./kci_build make_config $COMMON_ARGS --defconfig $DEFCONFIG
+                ./kci_build make_kernel $COMMON_ARGS
+                ./kci_build make_modules $COMMON_ARGS
+                ./kci_build make_dtbs $COMMON_ARGS
