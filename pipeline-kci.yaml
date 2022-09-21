@@ -17,44 +17,113 @@ jobs:
     plan:
       - get: kernelci-core
       - get: kernel-repo
-        # params: {depth: 1}
+        params: {depth: 1}
         trigger: true
         
-      - task: build
-        config:
-          platform: linux
+      - across:
+        - var: build-env
+          max_in_flight: all
+          values: ["gcc-10", "clang-15"]
+          #values: ["clang-15"]
+        - var: arch
+          max_in_flight: all
+          #values: ["arm64", "riscv"]
+          values: ["riscv"]
+        - var: defconfig
+          max_in_flight: all
+          values: ["defconfig"]
+          values: ["defconfig", "nommu_k210_defconfig", "nommu_k210_sdcard_defconfig", "nommu_virt_defconfig", "rv32_defconfig"]
 
-          params:
-            BUILD_CONFIG: ((build-config))
-            BUILD_ENV: ((build-env))
-            ARCH: ((arch))
-            DEFCONFIG: ((defconfig))
+        do:
 
-          image_resource:
-            type: docker-image
-            # FIXME: handle differences between gcc & clang docker images
-            source: {repository: kernelci/((build-env))_((arch))}
-            #source: {repository: kernelci/((build-env))}
+        - task: prep
+          #
+          # Determine the Docker image name based on arch/build-env
+          # 
+          config:
+            platform: linux
+            image_resource:
+              type: docker-image
+              source: {repository: kernelci/build-base}
+            inputs:
+              - name: kernelci-core
+              - name: kernel-repo  
+            outputs:
+              - name: build-env
+            run:
+              path: bash
+              args:
+                - -c
+                - |
+                  OUTPUT=$PWD/build-env
+                  cd kernelci-core
+                  ./kci_build show_build_env --arch ((.:arch)) --build-env ((.:build-env)) > $OUTPUT/results.txt
+                  docker_arch=$(cat $OUTPUT/results.txt | tail -3 | head -1)
+                  if [ ! -z $docker_arch ]; then
+                    docker_image_tag="$docker_arch-kselftest-kernelci"
+                  else
+                    docker_image_tag="kselftest-kernelci"
+                  fi
+                  echo $docker_image_tag > $OUTPUT/docker-image-tag.txt
+                  
+        - load_var: kci-docker-image-tag
+          file: build-env/docker-image-tag.txt
+          
+        - task: build-((.:arch))-((.:build-env))-((.:defconfig))
+          config:
+            platform: linux
 
-          inputs:
-            - name: kernelci-core
-            - name: kernel-repo
+            #container_limits:
+            #  cpu: 8
               
-          run:
-            path: bash
-            args:
-              - -xc
-              - |
-                KDIR=$PWD/kernel-repo
-                OUTPUT=$KDIR/build-$ARCH
-                CCACHE_DISABLE=true
-                COMMON_ARGS="--kdir $KDIR --output $OUTPUT"
+            params:
+              BUILD_CONFIG: ((build-config))
+              BUILD_ENV: ((.:build-env))
+              ARCH: ((.:arch))
+              DEFCONFIG: ((.:defconfig))
 
-                cat $KDIR/build/bmeta.json
+            image_resource:
+              type: docker-image
+              source:
+                repository: kernelci/((.:build-env))
+                tag: ((.:kci-docker-image-tag))
                 
-                cd kernelci-core
-                ./kci_build init_bmeta $COMMON_ARGS --build-config $BUILD_CONFIG --build-env $BUILD_ENV --arch $ARCH 
-                ./kci_build make_config $COMMON_ARGS --defconfig $DEFCONFIG
-                ./kci_build make_kernel $COMMON_ARGS
-                ./kci_build make_modules $COMMON_ARGS
-                ./kci_build make_dtbs $COMMON_ARGS
+            inputs:
+              - name: kernelci-core
+              - name: kernel-repo
+              
+            run:
+              #user: root # FIXME: KCI containers default to user:kernelci, which cannot modify input resources
+              path: bash
+              args:
+                - -c
+                - |
+                  KDIR=$PWD/kernel-repo
+                  export CCACHE_DISABLE=true
+                  #OUTPUT=$PWD/build-$ARCH-$BUILD_ENV
+                  #
+                  # FIXME: default concourse "build" dir is owned by root, so not writable from the kernelci
+                  #        docker iamges, which set the user to 'kernelci'    
+                  TEMP=/tmp
+                  OUTPUT=$TEMP/build-$ARCH-$BUILD_ENV
+                  #OUTPUT=$(mktemp -d)
+                  COMMON_ARGS="--kdir $KDIR --output $OUTPUT"
+
+                  mkdir -p $OUTPUT
+                  cd kernelci-core
+
+                  set -x
+                  ./kci_build init_bmeta $COMMON_ARGS --build-config $BUILD_CONFIG --build-env $BUILD_ENV --arch $ARCH 
+
+                  ./kci_build make_config $COMMON_ARGS --defconfig $DEFCONFIG && \
+                  ./kci_build fetch_firmware $COMMON_ARGS && \
+                  ./kci_build make_kernel -j8 $COMMON_ARGS && \
+                  ./kci_build make_modules $COMMON_ARGS && \
+                  ./kci_build make_dtbs $COMMON_ARGS;
+                  export KERNEL_BUILD_RESULT=$?
+
+                  ./kci_build make_kselftest $COMMON_ARGS; 
+
+                  ls -l $OUTPUT/arch/$ARCH/boot/
+                  
+                  exit $KERNEL_BUILD_RESULT;
