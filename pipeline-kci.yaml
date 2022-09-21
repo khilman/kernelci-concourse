@@ -24,22 +24,21 @@ jobs:
         - var: build-env
           max_in_flight: all
           values: ["gcc-10", "clang-15"]
-          #values: ["clang-15"]
         - var: arch
           max_in_flight: all
-          #values: ["arm64", "riscv"]
-          values: ["riscv"]
+          values: ["arm64", "riscv"]
         - var: defconfig
           max_in_flight: all
           values: ["defconfig"]
-          values: ["defconfig", "nommu_k210_defconfig", "nommu_k210_sdcard_defconfig", "nommu_virt_defconfig", "rv32_defconfig"]
 
         do:
 
         - task: prep
           #
           # Determine the Docker image name based on arch/build-env
-          # 
+          # - yes, kinda hacky, but for gcc, there's a separate Docker build image
+          #   for every arch, wheras for clang, there's a single toolchain with
+          #   support for all arches
           config:
             platform: linux
             image_resource:
@@ -65,7 +64,7 @@ jobs:
                     docker_image_tag="kselftest-kernelci"
                   fi
                   echo $docker_image_tag > $OUTPUT/docker-image-tag.txt
-                  
+
         - load_var: kci-docker-image-tag
           file: build-env/docker-image-tag.txt
           
@@ -92,6 +91,9 @@ jobs:
               - name: kernelci-core
               - name: kernel-repo
               
+            outputs:
+              - name: kernel-build-artifacts
+                
             run:
               #user: root # FIXME: KCI containers default to user:kernelci, which cannot modify input resources
               path: bash
@@ -127,3 +129,9 @@ jobs:
                   ls -l $OUTPUT/arch/$ARCH/boot/
                   
                   exit $KERNEL_BUILD_RESULT;
+
+   
+        - task: test-((.:arch))-((.:build-env))-((.:defconfig))
+          config:
+            platform: linux
+
