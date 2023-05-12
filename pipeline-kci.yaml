@@ -22,17 +22,21 @@ jobs:
         
       - across:
         - var: build-env
-          max_in_flight: all
-          values: ["gcc-10", "clang-15"]
+          values: ["gcc-10"]
+          #max_in_flight: all
+          #values: ["gcc-10", "clang-15"]
         - var: arch
-          max_in_flight: all
-          values: ["arm64", "riscv"]
+          values: ["arm64"]
+          #max_in_flight: all
+          #values: ["arm64", "riscv"]
         - var: defconfig
-          max_in_flight: all
           values: ["defconfig"]
+          #max_in_flight: all
+          #values: ["nommu_k210_defconfig"]
 
         do:
 
+#        - task: prep-((.:arch))-((.:build-env))-((.:defconfig))
         - task: prep
           #
           # Determine the Docker image name based on arch/build-env
@@ -43,13 +47,18 @@ jobs:
             platform: linux
             image_resource:
               type: docker-image
-              source: {repository: kernelci/build-base}
+              source:
+                repository: kernelci/k8s
+                tag: kernelci
             inputs:
               - name: kernelci-core
               - name: kernel-repo  
             outputs:
               - name: build-env
             run:
+              # KernelCI containers default to non-root user, which concourse doesn't deal with well
+              # c.f. https://github.com/concourse/concourse/issues/403
+              user: root
               path: bash
               args:
                 - -c
@@ -68,7 +77,8 @@ jobs:
         - load_var: kci-docker-image-tag
           file: build-env/docker-image-tag.txt
           
-        - task: build-((.:arch))-((.:build-env))-((.:defconfig))
+#        - task: build-((.:arch))-((.:build-env))-((.:defconfig))
+        - task: build
           config:
             platform: linux
 
@@ -92,46 +102,83 @@ jobs:
               - name: kernel-repo
               
             outputs:
-              - name: kernel-build-artifacts
+              - name: kernel-install
                 
             run:
-              #user: root # FIXME: KCI containers default to user:kernelci, which cannot modify input resources
+              user: root
               path: bash
               args:
                 - -c
                 - |
                   KDIR=$PWD/kernel-repo
-                  export CCACHE_DISABLE=true
-                  #OUTPUT=$PWD/build-$ARCH-$BUILD_ENV
+                  OUTPUT=$PWD/build-$ARCH-$BUILD_ENV
                   #
                   # FIXME: default concourse "build" dir is owned by root, so not writable from the kernelci
                   #        docker iamges, which set the user to 'kernelci'    
-                  TEMP=/tmp
-                  OUTPUT=$TEMP/build-$ARCH-$BUILD_ENV
-                  #OUTPUT=$(mktemp -d)
-                  COMMON_ARGS="--kdir $KDIR --output $OUTPUT"
-
-                  mkdir -p $OUTPUT
-                  cd kernelci-core
-
+                  #TEMP=/tmp
+                  #OUTPUT=$TEMP/build-$ARCH-$BUILD_ENV
+                  ##OUTPUT=$(mktemp -d)
+                  COMMON_ARGS="--kdir $KDIR --output $OUTPUT "
+                  INSTALL="--install "
+                  
                   set -x
-                  ./kci_build init_bmeta $COMMON_ARGS --build-config $BUILD_CONFIG --build-env $BUILD_ENV --arch $ARCH 
+                  mkdir -p $OUTPUT
+                  pushd kernelci-core
+                  ./kci_build init_bmeta $COMMON_ARGS $INSTALL --build-config $BUILD_CONFIG --build-env $BUILD_ENV --arch $ARCH 
 
+                  #
+                  #./kci_build fetch_firmware $COMMON_ARGS && \
+                  #
                   ./kci_build make_config $COMMON_ARGS --defconfig $DEFCONFIG && \
-                  ./kci_build fetch_firmware $COMMON_ARGS && \
-                  ./kci_build make_kernel -j8 $COMMON_ARGS && \
-                  ./kci_build make_modules $COMMON_ARGS && \
-                  ./kci_build make_dtbs $COMMON_ARGS;
+                  ./kci_build make_kernel $COMMON_ARGS $INSTALL && \
+                  ./kci_build make_modules $COMMON_ARGS $INSTALL && \
+                  ./kci_build make_dtbs $COMMON_ARGS $INSTALL;
                   export KERNEL_BUILD_RESULT=$?
 
-                  ./kci_build make_kselftest $COMMON_ARGS; 
+                  # FIXME: should be condtional based on kselftest defconfig being used
+                  #./kci_build make_kselftest $COMMON_ARGS; 
 
-                  ls -l $OUTPUT/arch/$ARCH/boot/
+                  popd
+                  
+                  #
+                  # move build-artifacts to output
+                  #
+                  ls -lR $OUTPUT/_install_
+                  mv $OUTPUT/_install_ kernel-install
                   
                   exit $KERNEL_BUILD_RESULT;
 
-   
-        - task: test-((.:arch))-((.:build-env))-((.:defconfig))
+#        - task: test-((.:arch))-((.:build-env))-((.:defconfig))
+        - task: test
           config:
             platform: linux
 
+            params:
+              LAB_CONFIG: lab-baylibre
+              ARCH: ((.:arch))
+              
+            inputs:
+              - name: kernelci-core
+              - name: kernel-install
+              
+            image_resource:
+              type: docker-image
+              source:
+                repository: kernelci/k8s
+                tag: kernelci
+                
+            run:
+              user: root
+              path: bash
+              args:
+                - -xc
+                - |
+                  INSTALL=$PWD/kernel-install/_install_
+                  ls -l $INSTALL
+                  cat $INSTALL/bmeta.json
+                  
+                  pushd kernelci-core
+                  ./kci_test get_lab_info --runtime-config $LAB_CONFIG --runtime-json $INSTALL/$LAB_CONFIG.json
+                  ./kci_test generate --runtime-config $LAB_CONFIG --runtime-json $INSTALL/$LAB_CONFIG.json --build-output $INSTALL --output $INSTALL/jobs --storage http://storage.staging.kernelci.org
+                  ls -l $INSTALL/jobs
+                  
