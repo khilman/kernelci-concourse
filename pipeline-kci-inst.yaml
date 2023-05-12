@@ -1,0 +1,155 @@
+resources:
+  - name: kernelci-core
+    type: git
+    source:
+      uri: ((kci-core-url))
+      branch: ((kci-core-branch))
+
+  - name: kernel-repo
+    type: git
+    source:
+      uri: ((kernel-repo-url))
+      branch: ((kernel-repo-branch))
+
+jobs:
+  - name: build-kernel
+    public: true
+    plan:
+      - get: kernelci-core
+      - get: kernel-repo
+        params: {depth: 1}
+        trigger: true
+        
+      - task: prep
+        #
+        # Determine the Docker image name based on arch/build-env
+        # - yes, kinda hacky, but for gcc, there's a separate Docker build image
+        #   for every arch, wheras for clang, there's a single toolchain with
+        #   support for all arches
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: kernelci/k8s
+              tag: kernelci
+          inputs:
+            - name: kernelci-core
+            - name: kernel-repo  
+          outputs:
+            - name: build-env
+          run:
+            # KernelCI containers default to non-root user, which concourse doesn't deal with well
+            # c.f. https://github.com/concourse/concourse/issues/403
+            user: root
+            path: bash
+            args:
+              - -c
+              - |
+                OUTPUT=$PWD/build-env
+                cd kernelci-core
+                ./kci_build show_build_env --arch ((arch)) --build-env ((build-env)) > $OUTPUT/results.txt
+                docker_arch=$(cat $OUTPUT/results.txt | tail -3 | head -1)
+                if [ ! -z $docker_arch ]; then
+                  docker_image_tag="$docker_arch-kselftest-kernelci"
+                else
+                  docker_image_tag="kselftest-kernelci"
+                fi
+                echo $docker_image_tag > $OUTPUT/docker-image-tag.txt
+
+      - load_var: kci-docker-image-tag
+        file: build-env/docker-image-tag.txt
+          
+      - task: build
+        config:
+          platform: linux
+
+          params:
+            BUILD_CONFIG: ((build-config))
+            BUILD_ENV: ((build-env))
+            ARCH: ((arch))
+            DEFCONFIG: ((defconfig))
+
+          image_resource:
+            type: docker-image
+            source:
+              repository: kernelci/((build-env))
+              tag: ((.:kci-docker-image-tag))
+                
+          inputs:
+            - name: kernelci-core
+            - name: kernel-repo
+              
+          outputs:
+            - name: kernel-install
+                
+          run:
+            user: root
+            path: bash
+            args:
+              - -c
+              - |
+                KDIR=$PWD/kernel-repo
+                OUTPUT=$PWD/build-$ARCH-$BUILD_ENV
+                COMMON_ARGS="--kdir $KDIR --output $OUTPUT"
+                INSTALL="--install"
+                  
+                mkdir -p $OUTPUT
+                pushd kernelci-core
+                ./kci_build init_bmeta $COMMON_ARGS $INSTALL --build-config $BUILD_CONFIG --build-env $BUILD_ENV --arch $ARCH 
+                ls -l $OUTPUT
+                cat $OUTPUT/bmeta.json
+
+                #
+                #./kci_build fetch_firmware $COMMON_ARGS && \
+                #
+                ./kci_build make_config $COMMON_ARGS --defconfig $DEFCONFIG && \
+                ./kci_build make_kernel $COMMON_ARGS $INSTALL && \
+                ./kci_build make_modules $COMMON_ARGS $INSTALL && \
+                ./kci_build make_dtbs $COMMON_ARGS $INSTALL;
+                export KERNEL_BUILD_RESULT=$?
+
+                # FIXME: should be condtional based on kselftest defconfig being used
+                #./kci_build make_kselftest $COMMON_ARGS; 
+
+                popd
+                  
+                #
+                # move build-artifacts to output
+                #
+                ls -lR $OUTPUT/_install_
+                mv $OUTPUT/_install_ kernel-install
+
+                exit $KERNEL_BUILD_RESULT;
+
+      - task: test
+        config:
+          platform: linux
+
+          params:
+            LAB_CONFIG: lab-baylibre
+            ARCH: ((arch))
+              
+          inputs:
+            - name: kernelci-core
+            - name: kernel-install
+              
+          image_resource:
+            type: docker-image
+            source:
+              repository: kernelci/k8s
+              tag: kernelci
+                
+          run:
+            user: root
+            path: bash
+            args:
+              - -xc
+              - |
+                INSTALL=$PWD/kernel-install/_install_
+                ls -l $INSTALL
+                cat $INSTALL/bmeta.json
+                  
+                pushd kernelci-core
+                ./kci_test get_lab_info --runtime-config $LAB_CONFIG --runtime-json $INSTALL/$LAB_CONFIG.json
+                ./kci_test generate --runtime-config $LAB_CONFIG --runtime-json $INSTALL/$LAB_CONFIG.json --build-output $INSTALL --output $INSTALL/jobs --storage ((kci-storage-url))
