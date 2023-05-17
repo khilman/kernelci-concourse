@@ -1,12 +1,15 @@
 resources:
   - name: kernelci-core
     type: git
+    tags: ["khilman"]
     source:
       uri: ((kci-core-url))
       branch: ((kci-core-branch))
 
   - name: kernel-repo
     type: git
+    check_every: 2h
+    tags: ["khilman"]
     source:
       uri: ((kernel-repo-url))
       branch: ((kernel-repo-branch))
@@ -16,11 +19,14 @@ jobs:
     public: true
     plan:
       - get: kernelci-core
+        tags: ["khilman"]
       - get: kernel-repo
+        tags: ["khilman"]
         params: {depth: 1}
         trigger: true
         
       - task: prep
+        tags: ["khilman"]
         #
         # Determine the Docker image name based on arch/build-env
         # - yes, kinda hacky, but for gcc, there's a separate Docker build image
@@ -61,6 +67,7 @@ jobs:
         file: build-env/docker-image-tag.txt
           
       - task: build
+        tags: ["khilman"]
         config:
           platform: linux
 
@@ -117,12 +124,12 @@ jobs:
                 #
                 # move build-artifacts to output
                 #
-                ls -lR $OUTPUT/_install_
                 mv $OUTPUT/_install_ kernel-install
 
                 exit $KERNEL_BUILD_RESULT;
 
       - task: test
+        tags: ["khilman"]
         config:
           platform: linux
 
